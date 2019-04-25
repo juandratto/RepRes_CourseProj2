@@ -1,0 +1,121 @@
+---
+title: 'Principal consequences of Storms and other severe weather events in EEUU'
+author: "Juan Ratto"
+date: "April 16, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. The basic goal of this analysis is to explore the NOAA Storm Database and answer the questions:
+Across the United States, which types of events (as indicated in the \color{red}{\verb|EVTYPE|}EVTYPE variable) are most harmful with respect to population health?
+Across the United States, which types of events have the greatest economic consequences?
+
+
+## Data Processing
+
+The database used for this analysis tracks characteristics of major storms and weather events in the United States between 1950 and November 2011. The data come in the form of a comma-separated-value file compressed and need to be downloaded and loaded into R for processing.
+
+
+Download the file and read csv file into data frame
+```{r dat_process1, echo=TRUE, message=FALSE, warning=FALSE}
+library(data.table)
+
+if(!file.exists("StormData.csv")) {
+    str_url <- "http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+    download.file(url = str_url, destfile = "StormData.csv.bz2")
+    StormData <- read.csv(bzfile("StormData.csv.bz2"),sep = ",",header=TRUE)
+} else StormData <- fread("StormData.csv")
+
+```
+
+Preparing the dataframe selecting only the variables used:
+"EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP", "CROPDMG", "CROPDMGEXP"
+And adding calculated variables for determine the total economic costs of damage.
+
+The function "exp_func" determine the exponential value for the columns "PROPDMGEXP" and "CROPDMGEXP". 
+If the value "x" is numeric then exponential is 10^x
+If is a character:
+
+* "H" : Hundreds
+* "K" : Thounseds
+* "M" : Millions
+* "B" : Billions
+
+```{r dat_process2, echo=TRUE}
+StormData <- StormData[, c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+
+exp_func = function(x) {
+    if (is.numeric(x))
+        10^x
+    else {
+        if(toupper(x) == "H")
+            100
+        else {
+            if(toupper(x) == "K")
+                1000
+            else {
+                if(toupper(x) == "M")
+                    10^6
+                else {
+                    if(toupper(x) == "B")
+                        10^9
+                    else {
+                        10^0
+                    }
+                }
+            }
+        }
+    }
+}
+
+StormData$ValExpPropDmg <- sapply(StormData$PROPDMGEXP, FUN = exp_func)
+StormData$ValExpCropDmg <- sapply(StormData$CROPDMGEXP, FUN = exp_func)
+StormData$TotalCost <- StormData$PROPDMG*StormData$ValExpPropDmg + StormData$CROPDMG+StormData$ValExpCropDmg
+
+```
+
+## Results
+
+###1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Top 10 disaster events by number of fatalities cause
+
+```{r dat_result1, echo=TRUE, message=FALSE, warning=FALSE}
+library(ggplot2)
+
+aggByFatal <- aggregate(list(SumFatal = StormData$FATALITIES), by=list(EVTYPE=StormData$EVTYPE), FUN=sum, na.rm = TRUE)
+aggByFatal <- head(aggByFatal[order(aggByFatal$SumFatal, decreasing = TRUE),], n = 10)
+
+ggplot(aggByFatal,aes(x = reorder(x = EVTYPE, X = -SumFatal), y = SumFatal, fill=EVTYPE, label = SumFatal)) + geom_bar(stat = "identity", show.legend = FALSE) + theme_light(base_size = 10) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab(label = "") + ylab(label = "Number of Fatalities") + geom_text(size = 3, position = position_stack(vjust = 0.9)) + ggtitle("Top 10 disaster events by number of fatalities cause")
+
+```
+
+Top 10 disaster events by number of injuries cause
+
+```{r dat_result2, echo=TRUE}
+
+aggByInjuries <- aggregate(list(SumInjur = StormData$INJURIES), by=list(EVTYPE=StormData$EVTYPE), FUN=sum, na.rm = TRUE)
+aggByInjuries <- head(aggByInjuries[order(aggByInjuries$SumInjur, decreasing = TRUE),], n = 10)
+
+ggplot(aggByInjuries,aes(x = reorder(x = EVTYPE, X = -SumInjur), y = SumInjur, fill=EVTYPE, label = SumInjur)) + geom_bar(stat = "identity", show.legend = FALSE) + theme_light(base_size = 10) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab(label = "") + ylab(label = "Number of Injuries") + geom_text(size = 3, position = position_stack(vjust = 0.9)) + ggtitle("Top 10 disaster events by number of injuries cause")
+
+
+```
+
+###2.Across the United States, which types of events have the greatest economic consequences?
+```{r dat_result3, echo=TRUE}
+
+aggByEconomic <- aggregate(list(SumEconomic = StormData$TotalCost), by=list(EVTYPE=StormData$EVTYPE), FUN=sum, na.rm = TRUE)
+aggByEconomic <- head(aggByEconomic[order(aggByEconomic$SumEconomic, decreasing = TRUE),], n = 10)
+#In Millions
+aggByEconomic$SumEconomic <- aggByEconomic$SumEconomic/1000000
+
+ggplot(aggByEconomic,aes(x = reorder(x = EVTYPE, X = -SumEconomic), y = SumEconomic, fill=EVTYPE, label = round(SumEconomic, digits = 2))) + geom_bar(stat = "identity", show.legend = FALSE) + theme_light(base_size = 10) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab(label = "") + ylab(label = "Total economic cost (in Millions USD)") + geom_text(size = 3, position = position_stack(vjust = 0.9)) + ggtitle("Top 10 disaster events by economic consequences")
+
+```
